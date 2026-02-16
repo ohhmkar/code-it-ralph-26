@@ -819,11 +819,20 @@ export default function NightFuryRadar() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = Math.min(1200, window.innerWidth);
-    canvas.height = Math.min(700, window.innerHeight);
+    
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    
     const cleanup = initGame(canvas);
     gameRef.current = cleanup;
-    return () => { if (gameRef.current) gameRef.current(); };
+    return () => { 
+      window.removeEventListener("resize", resize);
+      if (gameRef.current) gameRef.current(); 
+    };
   }, [initGame]);
 
   return (
@@ -842,8 +851,6 @@ export default function NightFuryRadar() {
         ref={canvasRef}
         style={{
           display: "block",
-          borderRadius: "3px",
-          border: "1px solid rgba(100, 50, 170, 0.08)",
         }}
 
 

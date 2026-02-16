@@ -26,7 +26,10 @@ export default function NightFuryRadar() {
       highScore: 0,
       crashTimer: 0,
       crashDuration: 80,
+      pauseSelection: 0, // 0 = Resume, 1 = Restart, 2 = Main Menu
     };
+
+
 
     /* ─── Player ─── */
     const player = {
@@ -79,6 +82,41 @@ export default function NightFuryRadar() {
     /* ─── Input ─── */
     function onKeyDown(e) {
       keys[e.code] = true;
+      
+      // ESC for pause/resume
+      if (e.code === "Escape") {
+        e.preventDefault();
+        if (STATE.mode === "PLAY") {
+          STATE.mode = "PAUSED";
+          STATE.pauseSelection = 0;
+        } else if (STATE.mode === "PAUSED") {
+          STATE.mode = "PLAY";
+        }
+        return;
+      }
+      
+      // Pause menu navigation
+      if (STATE.mode === "PAUSED") {
+        if (e.code === "ArrowUp" || e.code === "KeyW") {
+          STATE.pauseSelection = (STATE.pauseSelection - 1 + 3) % 3;
+        } else if (e.code === "ArrowDown" || e.code === "KeyS") {
+          STATE.pauseSelection = (STATE.pauseSelection + 1) % 3;
+        } else if (e.code === "Space" || e.code === "Enter") {
+          e.preventDefault();
+          if (STATE.pauseSelection === 0) {
+            // Resume
+            STATE.mode = "PLAY";
+          } else if (STATE.pauseSelection === 1) {
+            // Restart
+            startGame();
+          } else if (STATE.pauseSelection === 2) {
+            // Main Menu
+            goToMainMenu();
+          }
+        }
+        return;
+      }
+      
       if (e.code === "Space") {
         e.preventDefault();
         if (STATE.mode === "START") startGame();
@@ -166,11 +204,36 @@ export default function NightFuryRadar() {
       }
     }
 
+    /* ─── Go to Main Menu ─── */
+    function goToMainMenu() {
+      STATE.mode = "START";
+      STATE.score = 0;
+      STATE.crashTimer = 0;
+      STATE.pauseSelection = 0;
+      player.x = W * 0.22;
+      player.y = H / 2;
+      player.vy = 0;
+      player.vx = 0;
+      pulse.energy = pulse.max;
+      pulses.length = 0;
+      particles.length = 0;
+      obstacles = [];
+      scrollX = 0;
+      nextObs = W + 250;
+      nextPowerup = W + 500;
+      powerups.length = 0;
+      activePowerups.immunity.active = false;
+      activePowerups.immunity.timer = 0;
+      activePowerups.fireball.active = false;
+      activePowerups.fireball.timer = 0;
+      shake.i = 0;
+    }
+
     /* ─── Fire Pulse ─── */
     function firePulse() {
       if (pulse.energy < pulse.cost) return;
       pulse.energy -= pulse.cost;
-      
+
       const isFireball = activePowerups.fireball.active;
       
       // Always fire a normal pulse for visibility
@@ -180,12 +243,12 @@ export default function NightFuryRadar() {
         r: 80,  // Start larger for instant visibility
         maxR: 650,
         a: 1,
-        w: 4,
-        hue: 260 + Math.random() * 40,
-        isFireball: false,
+        // New high-fidelity properties
+        w: 4, // width
+        hue: isFireball ? 0 : 260 + Math.random() * 40,
+        isFireball: isFireball,
       });
       
-      // Also fire a fireball if active
       if (isFireball) {
         pulses.push({
           x: player.x + player.width / 2,
@@ -198,11 +261,11 @@ export default function NightFuryRadar() {
           isFireball: true,
         });
         activePowerups.fireball.active = false;
-        shake.i = 12;
+        shake.i = 8;
       } else {
-        shake.i = 6;
+        shake.i = 4;
       }
-      
+
       sonar.energy = 1;
 
       // Play sound
@@ -225,7 +288,7 @@ export default function NightFuryRadar() {
     function checkCollision() {
       // Immunity powerup prevents collision
       if (activePowerups.immunity.active) return false;
-      
+
       const cx = player.x + player.width / 2;
       const cy = player.y + player.height / 2;
       const tests = [
@@ -340,7 +403,7 @@ export default function NightFuryRadar() {
             }
           }
         }
-        
+
         // Update powerup timers
         if (activePowerups.immunity.active) {
           activePowerups.immunity.timer--;
@@ -348,7 +411,7 @@ export default function NightFuryRadar() {
             activePowerups.immunity.active = false;
           }
         }
-        
+
         // Check powerup collection
         for (let i = powerups.length - 1; i >= 0; i--) {
           const pu = powerups[i];
@@ -394,21 +457,21 @@ export default function NightFuryRadar() {
         }
 
         obstacles = obstacles.filter(ob => ob.x - scrollX > -150);
-        
+
         // Generate powerups in safe but challenging positions
         while (nextPowerup - scrollX < W + 200) {
           const types = Object.values(POWERUP_TYPES);
           const selectedType = types[Math.floor(Math.random() * types.length)];
-          
+
           // Find obstacles near this X position to avoid placing inside them
-          const nearbyObs = obstacles.filter(ob => 
+          const nearbyObs = obstacles.filter(ob =>
             Math.abs(ob.x - nextPowerup) < ob.w + 60
           );
-          
+
           // Calculate safe Y range
           let safeMinY = 80;
           let safeMaxY = H - 80;
-          
+
           for (const ob of nearbyObs) {
             if (ob.isTop) {
               // Top obstacle - don't place in upper area
@@ -418,14 +481,14 @@ export default function NightFuryRadar() {
               safeMaxY = Math.min(safeMaxY, H - ob.h - 50);
             }
           }
-          
+
           // Ensure valid range exists
           if (safeMaxY - safeMinY > 60) {
             // Place slightly off-center (not in the middle, makes it more challenging)
             const centerY = (safeMinY + safeMaxY) / 2;
             const offset = (Math.random() - 0.5) * (safeMaxY - safeMinY) * 0.6;
             const puY = Math.max(safeMinY + 30, Math.min(safeMaxY - 30, centerY + offset));
-            
+
             powerups.push({
               x: nextPowerup,
               y: puY,
@@ -437,7 +500,7 @@ export default function NightFuryRadar() {
           }
           nextPowerup += 600 + Math.random() * 400;
         }
-        
+
         // Update powerups
         powerups.forEach(pu => {
           pu.pulse += 0.08;
@@ -513,6 +576,9 @@ export default function NightFuryRadar() {
 
       if (STATE.mode === "START") {
         drawStart();
+      } else if (STATE.mode === "PAUSED") {
+        drawGame();
+        drawPause();
       } else {
         drawGame();
       }
@@ -550,15 +616,15 @@ export default function NightFuryRadar() {
       for (const pu of powerups) {
         const px = pu.x - scrollX;
         if (px < -50 || px > W + 50) continue;
-        
+
         ctx.save();
         const scale = 1 + Math.sin(pu.pulse) * 0.15;
         const alpha = 0.7 + Math.sin(pu.pulse * 2) * 0.3;
-        
+
         ctx.globalAlpha = alpha;
         ctx.translate(px, pu.y);
         ctx.scale(scale, scale);
-        
+
         // Outer glow
         const glow = ctx.createRadialGradient(0, 0, 10, 0, 0, 25);
         const r = parseInt(pu.color.slice(1, 3), 16);
@@ -570,7 +636,7 @@ export default function NightFuryRadar() {
         ctx.beginPath();
         ctx.arc(0, 0, 25, 0, Math.PI * 2);
         ctx.fill();
-        
+
         // Symbol
         ctx.fillStyle = pu.color;
         ctx.shadowColor = pu.color;
@@ -579,50 +645,50 @@ export default function NightFuryRadar() {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(pu.symbol, 0, 0);
-        
+
         ctx.restore();
       }
 
-      // Pulse rings (High Fidelity)
+      // Pulse rings (Subtle Warp Style)
       for (const p of pulses) {
         ctx.save();
-
-        // 1. Outer Glow (Soft)
-        const g = ctx.createRadialGradient(p.x, p.y, p.r * 0.8, p.x, p.y, p.r);
-        g.addColorStop(0, `hsla(${p.hue}, 100%, 50%, 0)`);
-        g.addColorStop(0.9, `hsla(${p.hue}, 100%, 70%, ${p.a * 0.3})`);
-        g.addColorStop(1, `hsla(${p.hue}, 100%, 50%, 0)`);
-        ctx.fillStyle = g;
         ctx.globalCompositeOperation = "screen";
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
 
-        // 2. Main Ring (Sharp, Chromatic)
-        ctx.globalCompositeOperation = "lighter";
+        // Multiple thin rings for warp effect
+        const ringCount = 4;
+        for (let i = 0; i < ringCount; i++) {
+          const ringOffset = i * 6;
+          const ringR = Math.max(0, p.r - ringOffset);
+          const ringAlpha = p.a * (1 - i * 0.2) * 0.6; // More subtle opacity
+          
+          if (ringR > 5 && ringAlpha > 0.01) {
+            // Outer glow ring
+            ctx.strokeStyle = `hsla(${p.hue + i * 10}, 80%, 60%, ${ringAlpha * 0.4})`;
+            ctx.lineWidth = 3 - i * 0.5;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, ringR, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Inner sharp ring
+            ctx.strokeStyle = `hsla(${p.hue + i * 15}, 100%, 75%, ${ringAlpha * 0.7})`;
+            ctx.lineWidth = 1.5 - i * 0.3;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, ringR - 1, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
 
-        // Cyan shift inner
-        ctx.strokeStyle = `rgba(100, 255, 255, ${p.a * 0.8})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r - 2, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Magenta shift outer
-        ctx.strokeStyle = `rgba(255, 100, 255, ${p.a * 0.8})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r + 2, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // White hot core ring
-        ctx.strokeStyle = `rgba(255, 255, 255, ${p.a})`;
-        ctx.lineWidth = 1;
-        ctx.shadowColor = `hsla(${p.hue}, 100%, 70%, 1)`;
-        ctx.shadowBlur = 15;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.stroke();
+        // Subtle center glow (only for fresh pulses)
+        if (p.r < 80) {
+          const centerAlpha = Math.max(0, (1 - p.r / 80)) * p.a * 0.3;
+          const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 30);
+          g.addColorStop(0, `hsla(${p.hue}, 100%, 85%, ${centerAlpha})`);
+          g.addColorStop(1, `hsla(${p.hue}, 100%, 50%, 0)`);
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 30, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         ctx.restore();
       }
@@ -654,7 +720,7 @@ export default function NightFuryRadar() {
         ctx.stroke();
         ctx.restore();
       }
-      
+
       drawDragon();
 
       // HUD
@@ -702,7 +768,7 @@ export default function NightFuryRadar() {
       ctx.font = "9px 'Courier New', monospace";
       ctx.textAlign = "left";
       ctx.fillText(`SPD ${"▮".repeat(sl)}${"▯".repeat(3 - sl)}`, 18, 66);
-      
+
       // Active powerups display
       let pyOffset = 82;
       if (activePowerups.immunity.active) {
@@ -741,41 +807,167 @@ export default function NightFuryRadar() {
     }
 
     function drawStart() {
-      const p = 0.5 + 0.5 * Math.sin(Date.now() * 0.002);
+      const t = Date.now() * 0.001;
+      const p = 0.5 + 0.5 * Math.sin(t * 2);
+      
+      // Animated background particles
+      ctx.save();
+      for (let i = 0; i < 30; i++) {
+        const px = (W * 0.2 + i * 37 + t * 20) % W;
+        const py = (H * 0.3 + i * 23 + Math.sin(t + i) * 30) % H;
+        const size = 1 + Math.sin(t * 2 + i) * 0.5;
+        const alpha = 0.1 + Math.sin(t + i * 0.5) * 0.1;
+        ctx.fillStyle = `rgba(140, 80, 220, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
 
       ctx.save();
-      ctx.fillStyle = `rgba(100, 50, 170, ${0.5 + p * 0.3})`;
-      ctx.shadowColor = "#7c3aed";
-      ctx.shadowBlur = 20 * p;
-      ctx.font = "bold 36px 'Courier New', monospace";
+      
+      // Title with glow effect
+      const titleY = H * 0.22;
+      ctx.shadowColor = "#a855f7";
+      ctx.shadowBlur = 30 + p * 20;
+      ctx.fillStyle = "#c084fc";
+      ctx.font = "bold 48px 'Courier New', monospace";
       ctx.textAlign = "center";
-      ctx.fillText("NIGHT FURY RADAR", W / 2, H * 0.3);
+      ctx.fillText("NIGHT FURY", W / 2, titleY);
+      
+      // Subtitle
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = "#7c3aed";
+      ctx.fillStyle = "#a78bfa";
+      ctx.font = "bold 20px 'Courier New', monospace";
+      ctx.fillText("R A D A R", W / 2, titleY + 35);
+      
+      // Tagline
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#6b5b9566";
+      ctx.font = "italic 13px 'Courier New', monospace";
+      ctx.fillText("◈ fly blind. pulse to see. ◈", W / 2, titleY + 65);
 
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = "#5a3d8a66";
-      ctx.font = "12px 'Courier New', monospace";
-      ctx.fillText("fly blind. pulse to see.", W / 2, H * 0.38);
-
-      // Dragon preview
+      // Dragon preview with floating animation
       if (dragonImg.complete && dragonImg.naturalWidth > 0) {
         ctx.save();
-        ctx.translate(W / 2, H * 0.50);
-        ctx.scale(-1, 1);
-        ctx.drawImage(dragonImg, -40, -25, 80, 50);
+        const dragonY = H * 0.48 + Math.sin(t * 1.5) * 8;
+        const dragonScale = 1 + Math.sin(t * 2) * 0.03;
+        ctx.translate(W / 2, dragonY);
+        ctx.scale(-dragonScale, dragonScale);
+        
+        // Glow behind dragon
+        ctx.shadowColor = "#a855f7";
+        ctx.shadowBlur = 25;
+        ctx.drawImage(dragonImg, -55, -30, 110, 60);
         ctx.restore();
       }
 
-      ctx.shadowBlur = 4;
-      ctx.fillStyle = "#9b7cc866";
-      ctx.font = "11px 'Courier New', monospace";
-      ctx.fillText("[WASD / ARROWS] — FLY", W / 2, H * 0.64);
-      ctx.fillText("[SPACE] — PULSE", W / 2, H * 0.69);
+      // Control hints box
+      const boxY = H * 0.66;
+      const boxW = 280;
+      const boxH = 80;
+      const boxX = (W - boxW) / 2;
+      
+      ctx.fillStyle = "rgba(20, 10, 40, 0.6)";
+      ctx.strokeStyle = "rgba(140, 80, 220, 0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+      ctx.fill();
+      ctx.stroke();
+      
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#9b7cc8";
+      ctx.font = "12px 'Courier New', monospace";
+      ctx.fillText("[W A S D]  or  [↑ ↓ ← →]  —  FLY", W / 2, boxY + 25);
+      ctx.fillText("[SPACE]  —  SONAR PULSE", W / 2, boxY + 45);
+      ctx.fillStyle = "#7c6b9a88";
+      ctx.font = "10px 'Courier New', monospace";
+      ctx.fillText("[ESC]  —  PAUSE", W / 2, boxY + 65);
 
-      ctx.shadowBlur = 12 * p;
-      ctx.fillStyle = `rgba(155, 124, 200, ${0.4 + p * 0.5})`;
-      ctx.font = "bold 14px 'Courier New', monospace";
-      ctx.fillText("[ SPACE TO FLY ]", W / 2, H * 0.82);
+      // High score display
+      if (STATE.highScore > 0) {
+        ctx.fillStyle = "#fbbf2488";
+        ctx.font = "11px 'Courier New', monospace";
+        ctx.fillText(`★ BEST: ${STATE.highScore}`, W / 2, H * 0.88);
+      }
 
+      // Animated start prompt
+      const promptAlpha = 0.4 + p * 0.6;
+      ctx.shadowColor = "#a855f7";
+      ctx.shadowBlur = 15 * p;
+      ctx.fillStyle = `rgba(192, 132, 252, ${promptAlpha})`;
+      ctx.font = "bold 16px 'Courier New', monospace";
+      ctx.fillText("▶  PRESS SPACE TO FLY  ◀", W / 2, H * 0.94);
+
+      ctx.restore();
+    }
+
+    function drawPause() {
+      const t = Date.now() * 0.001;
+      
+      ctx.save();
+      
+      // Darken background
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillRect(0, 0, W, H);
+      
+      // Pause title
+      ctx.shadowColor = "#a855f7";
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = "#c084fc";
+      ctx.font = "bold 36px 'Courier New', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("PAUSED", W / 2, H * 0.28);
+      
+      // Current score
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#9b7cc888";
+      ctx.font = "14px 'Courier New', monospace";
+      ctx.fillText(`DISTANCE: ${STATE.score}`, W / 2, H * 0.36);
+      
+      // Menu options
+      const options = ["▶  RESUME", "↻  RESTART", "◀  MAIN MENU"];
+      const menuY = H * 0.48;
+      const menuSpacing = 50;
+      
+      for (let i = 0; i < options.length; i++) {
+        const isSelected = STATE.pauseSelection === i;
+        const y = menuY + i * menuSpacing;
+        
+        if (isSelected) {
+          // Selection highlight box
+          const boxW = 220;
+          const boxH = 36;
+          ctx.fillStyle = "rgba(140, 80, 220, 0.2)";
+          ctx.strokeStyle = "#a855f7";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.roundRect((W - boxW) / 2, y - 22, boxW, boxH, 6);
+          ctx.fill();
+          ctx.stroke();
+          
+          // Selected text
+          ctx.shadowColor = "#a855f7";
+          ctx.shadowBlur = 12;
+          ctx.fillStyle = "#e9d5ff";
+          ctx.font = "bold 16px 'Courier New', monospace";
+        } else {
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#7c6b9a88";
+          ctx.font = "14px 'Courier New', monospace";
+        }
+        
+        ctx.fillText(options[i], W / 2, y);
+      }
+      
+      // Navigation hint
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#5a4d7a55";
+      ctx.font = "10px 'Courier New', monospace";
+      ctx.fillText("[↑↓] Navigate   [SPACE/ENTER] Select   [ESC] Resume", W / 2, H * 0.88);
+      
       ctx.restore();
     }
 
@@ -831,19 +1023,19 @@ export default function NightFuryRadar() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const resize = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     };
     resize();
     window.addEventListener("resize", resize);
-    
+
     const cleanup = initGame(canvas);
     gameRef.current = cleanup;
-    return () => { 
+    return () => {
       window.removeEventListener("resize", resize);
-      if (gameRef.current) gameRef.current(); 
+      if (gameRef.current) gameRef.current();
     };
   }, [initGame]);
 
@@ -864,8 +1056,6 @@ export default function NightFuryRadar() {
         style={{
           display: "block",
         }}
-
-
       />
     </div>
   );

@@ -177,8 +177,8 @@ export default function NightFuryRadar() {
       pulses.push({
         x: player.x + player.width / 2,
         y: player.y + player.height / 2,
-        r: 10,
-        maxR: 550,
+        r: 80,  // Start larger for instant visibility
+        maxR: 650,
         a: 1,
         w: 4,
         hue: 260 + Math.random() * 40,
@@ -190,8 +190,8 @@ export default function NightFuryRadar() {
         pulses.push({
           x: player.x + player.width / 2,
           y: player.y + player.height / 2,
-          r: 10,
-          maxR: 350,
+          r: 60,
+          maxR: 400,
           a: 1,
           w: 6,
           hue: 0,
@@ -322,7 +322,7 @@ export default function NightFuryRadar() {
         // Update pulses
         for (let i = pulses.length - 1; i >= 0; i--) {
           const p = pulses[i];
-          p.r += p.isFireball ? 9 : 7;
+          p.r += p.isFireball ? 14 : 12;  // Faster expansion
           p.a = 1 - p.r / p.maxR;
           if (p.r >= p.maxR) { pulses.splice(i, 1); continue; }
           for (const ob of obstacles) {

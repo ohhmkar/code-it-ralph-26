@@ -19,6 +19,7 @@ export default function NightFuryRadar() {
       highScore: 0,
       crashTimer: 0,
       crashDuration: 90, // frames
+      pulseFlash: 0, // Chromatic aberration intensity
     };
 
     /* ───────── PLAYER (Toothless) ───────── */
@@ -38,7 +39,7 @@ export default function NightFuryRadar() {
 
     /* ───────── PULSE SYSTEM ───────── */
     const pulseState = {
-      energy: 100,
+      energy: 1000,
       maxEnergy: 100,
       cost: 28,
       rechargeBase: 0.08,
@@ -89,46 +90,55 @@ export default function NightFuryRadar() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
-    /* ───────── GENERATE JAGGED PILLAR ───────── */
-    function generatePillar(x) {
-      const isTop = Math.random() > 0.5;
-      const minH = 80;
-      const maxH = H * 0.55;
-      const h = minH + Math.random() * (maxH - minH);
-      const w = 40 + Math.random() * 50;
-      const baseY = isTop ? 0 : H - h;
+    /* ───────── GENERATE ORGANIC CAVE WALL ───────── */
+    function generatePillar(x, isTop, minGap = 0) {
+      const minH = 40;
+      // If we need to respect a minimum gap, constrain the max height
+      const maxPossibleH = H - minGap - minH;
+      const maxH = Math.min(H * 0.6, Math.max(minH + 50, maxPossibleH));
 
-      // jagged polygon points
+      const h = minH + Math.random() * (maxH - minH);
+      const w = 60 + Math.random() * 80; // Wider, more organic
+      const baseY = isTop ? 0 : H;
+
+      // Organic shape using sine wave summation (simple noise)
       const pts = [];
-      const segments = 6 + Math.floor(Math.random() * 5);
+      const segments = 12; // More segments for smoother look
+
       if (isTop) {
-        // top pillar hangs down
-        pts.push({ x: x, y: 0 });
+        pts.push({ x: x, y: 0 }); // Top-left anchor
         for (let i = 0; i <= segments; i++) {
           const frac = i / segments;
-          const jag = (Math.random() - 0.5) * w * 0.6;
+          // Non-linear bulge
+          const bulge = Math.sin(frac * Math.PI) * (w * 0.2);
+          // Noise
+          const noise = Math.sin(frac * 10 + x * 0.01) * 10 + Math.cos(frac * 20) * 5;
+
           pts.push({
-            x: x + w / 2 + jag,
-            y: frac * h,
+            x: x + (frac * w) + bulge + noise,
+            y: (frac * h * 0.8) + (Math.random() * h * 0.2) // jagged bottom edge
           });
         }
-        pts.push({ x: x + w, y: 0 });
+        pts.push({ x: x + w, y: 0 }); // Top-right anchor
       } else {
-        // bottom pillar grows up
-        pts.push({ x: x, y: H });
+        pts.push({ x: x, y: H }); // Bottom-left anchor
         for (let i = 0; i <= segments; i++) {
           const frac = i / segments;
+          // Non-linear bulge
+          const bulge = Math.sin(frac * Math.PI) * (w * 0.2);
+          const noise = Math.sin(frac * 12 + x * 0.02) * 10 + Math.cos(frac * 15) * 5;
+
           pts.push({
-            x: x + w / 2 + (Math.random() - 0.5) * w * 0.6,
-            y: H - frac * h,
+            x: x + (frac * w) + bulge + noise,
+            y: H - ((frac * h * 0.8) + (Math.random() * h * 0.2)) // jagged top edge
           });
         }
-        pts.push({ x: x + w, y: H });
+        pts.push({ x: x + w, y: H }); // Bottom-right anchor
       }
 
       return {
         x,
-        y: baseY,
+        y: isTop ? 0 : H - h, // approximate bounding box y
         w,
         h,
         points: pts,
@@ -158,36 +168,45 @@ export default function NightFuryRadar() {
 
       // seed initial obstacles
       for (let i = 0; i < 8; i++) {
-        obstacles.push(generatePillar(nextObstacleX));
-        // sometimes add a pair
+        const isTop = Math.random() > 0.5;
+        const obs = generatePillar(nextObstacleX, isTop);
+        obstacles.push(obs);
+
+        // sometimes add a pair (IMPOSSIBLE LEVEL CHECK)
         if (Math.random() > 0.4) {
-          const pair = generatePillar(nextObstacleX);
-          pair.isTop = !obstacles[obstacles.length - 1].isTop;
-          pair.y = pair.isTop ? 0 : H - pair.h;
-          // regenerate points for flipped
-          const pts2 = [];
-          const seg = 6 + Math.floor(Math.random() * 4);
-          if (pair.isTop) {
-            pts2.push({ x: pair.x, y: 0 });
-            for (let j = 0; j <= seg; j++) {
-              pts2.push({
-                x: pair.x + pair.w / 2 + (Math.random() - 0.5) * pair.w * 0.5,
-                y: (j / seg) * pair.h,
-              });
-            }
-            pts2.push({ x: pair.x + pair.w, y: 0 });
-          } else {
-            pts2.push({ x: pair.x, y: H });
-            for (let j = 0; j <= seg; j++) {
-              pts2.push({
-                x: pair.x + pair.w / 2 + (Math.random() - 0.5) * pair.w * 0.5,
-                y: H - (j / seg) * pair.h,
-              });
-            }
-            pts2.push({ x: pair.x + pair.w, y: H });
+          const gap = player.height * 4.5; // Ensure ample space
+          // If first one was top, generate bottom with gap constraint
+          // If first one was bottom, generate top with gap constraint
+          // Actually, just pass the 'gap' to generatePillar logic or check after?
+          // Let's pass the other obstacle's height to constrain the new one.
+
+          const otherH = obs.h;
+          const totalSpace = H;
+          // We need H - (h1 + h2) > gap
+          // So h2 < H - h1 - gap
+
+          const maxH2 = H - otherH - gap;
+          if (maxH2 > 50) { // Only generate if there's enough room for a decent obstacle
+            const pair = generatePillar(nextObstacleX, !isTop, H - maxH2); // Pass minGap? No, logic inside needs update.
+            // Let's use a simpler approach: explicitly request generation with max height constraint
+
+            // Redo generation logic above to accept constraints.
+            // ... Refactored generatePillar above to accept 'minGap' which implies max height.
+
+            // Actually, the logic in my new generatePillar uses minGap to calculate maxPossibleH.
+            // If I have an existing obstacle of height h1. 
+            // The new obstacle (h2) needs to leave 'gap' space.
+            // Space used = h1. Remaining = H - h1.
+            // We need Remaining - h2 > gap  => h2 < Remaining - gap => h2 < H - h1 - gap.
+            // So I should pass (h1 + gap) as the 'reserved space' effectively?
+            // No, my generatePillar takes 'minGap' and does `H - minGap - minH`.
+            // So if I pass `minGap = otherH + gap`, then `maxPossibleH = H - (otherH + gap) - minH`.
+            // `maxH = ... maxPossibleH`.
+
+            const safeGap = otherH + gap;
+            const pairObs = generatePillar(nextObstacleX, !isTop, safeGap);
+            obstacles.push(pairObs);
           }
-          pair.points = pts2;
-          obstacles.push(pair);
         }
         nextObstacleX += OBSTACLE_GAP + Math.random() * 120;
       }
@@ -205,6 +224,7 @@ export default function NightFuryRadar() {
         alpha: 1.0,
       });
       shake.intensity = 12;
+      STATE.pulseFlash = 1.0; // Trigger chromatic aberration
       soundWave.energy = 1.0;
     }
 
@@ -271,75 +291,105 @@ export default function NightFuryRadar() {
       }
     }
 
+    /* ───────── CRASH REVEAL ───────── */
+    function updateCrashReveal() {
+      // Light up all obstacles
+      for (const ob of obstacles) {
+        if (ob.opacity < 1.0) {
+          ob.opacity += 0.02;
+        }
+      }
+    }
+
     /* ───────── DRAW TOOTHLESS (Dragon silhouette) ───────── */
+    // REPLACEABLE: You can swap this function to draw an image/sprite instead.
+    // function drawToothlessModel(ctx, x, y, w, h, angle) { ... }
     function drawToothless(cx, cy) {
       ctx.save();
       ctx.translate(cx, cy);
 
+      // Pitch based on velocity
+      const pitch = Math.min(Math.max(player.vy * 0.1, -0.5), 0.5);
+      ctx.rotate(pitch);
+
       // glow
       ctx.shadowColor = "#a020f0";
-      ctx.shadowBlur = 30;
+      ctx.shadowBlur = 20;
+
+      const scale = 0.8;
+      ctx.scale(scale, scale);
 
       const w = player.width;
       const h = player.height;
 
-      // Body
-      ctx.fillStyle = "#7b2ff2";
+      // Color
+      ctx.fillStyle = "#100020"; // Darker body (Night Fury)
+
+      // 1. Wings (Bottom Layer)
+      const wingFlap = Math.sin(Date.now() * 0.015) * 8;
+
+      // Left Wing (Far)
       ctx.beginPath();
-      ctx.ellipse(w / 2, h / 2, w / 2, h / 2.5, 0, 0, Math.PI * 2);
+      ctx.moveTo(10, 5);
+      ctx.quadraticCurveTo(-20, -20 + wingFlap, -40, 10 + wingFlap);
+      ctx.quadraticCurveTo(-10, 20, 10, 10);
+      ctx.fillStyle = "#1a0b2e";
       ctx.fill();
 
-      // Head
+      // 2. Body (Smooth aerodynamic shape)
       ctx.beginPath();
-      ctx.ellipse(w * 0.85, h * 0.38, 10, 7, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 30, 12, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#0a0510";
       ctx.fill();
 
-      // Wings (flap)
-      const wingFlap = Math.sin(Date.now() * 0.012) * 6;
+      // 3. Head (Rounded with ear plates)
       ctx.beginPath();
-      ctx.moveTo(w * 0.35, h * 0.3);
-      ctx.quadraticCurveTo(w * 0.15, -8 + wingFlap, w * 0.5, h * 0.1 + wingFlap);
-      ctx.lineTo(w * 0.55, h * 0.35);
-      ctx.closePath();
+      ctx.ellipse(28, -2, 14, 10, 0.2, 0, Math.PI * 2);
       ctx.fill();
 
+      // Ear plates (Nubs)
       ctx.beginPath();
-      ctx.moveTo(w * 0.35, h * 0.7);
-      ctx.quadraticCurveTo(w * 0.15, h + 8 - wingFlap, w * 0.5, h * 0.9 - wingFlap);
-      ctx.lineTo(w * 0.55, h * 0.65);
-      ctx.closePath();
+      ctx.moveTo(22, -10);
+      ctx.lineTo(18, -18); // Ear 1
+      ctx.lineTo(24, -12);
+      ctx.lineTo(28, -20); // Ear 2
+      ctx.lineTo(32, -11);
+      ctx.lineTo(38, -16); // Ear 3 (Middle)
+      ctx.lineTo(36, -8);
       ctx.fill();
 
-      // Tail
+      // 4. Right Wing (Near)
       ctx.beginPath();
-      ctx.moveTo(4, h * 0.45);
-      ctx.quadraticCurveTo(-18, h * 0.5 + wingFlap * 0.5, -14, h * 0.55);
-      ctx.lineTo(4, h * 0.55);
-      ctx.closePath();
+      ctx.moveTo(10, 5);
+      ctx.quadraticCurveTo(-15, -30 + wingFlap, -50, -10 + wingFlap);
+      ctx.bezierCurveTo(-30, 30 + wingFlap, 0, 20, 15, 8);
+      ctx.fillStyle = "#2d1b4e"; // Slightly lighter for contrast
       ctx.fill();
 
-      // Tail fin
+      // 5. Tail
       ctx.beginPath();
-      ctx.moveTo(-14, h * 0.4);
-      ctx.lineTo(-22, h * 0.2 + wingFlap * 0.3);
-      ctx.lineTo(-12, h * 0.45);
-      ctx.closePath();
+      ctx.moveTo(-25, 0);
+      ctx.quadraticCurveTo(-50, 5, -70, 0); // Tail spine
+      ctx.strokeStyle = "#0a0510";
+      ctx.lineWidth = 6;
+      ctx.stroke();
+
+      // Tail Fins (Red one?)
+      ctx.beginPath();
+      ctx.moveTo(-65, 0);
+      ctx.lineTo(-75, -10 + wingFlap * 0.5);
+      ctx.lineTo(-70, 0);
+      ctx.lineTo(-75, 10 - wingFlap * 0.5);
+      ctx.lineTo(-65, 0);
+      ctx.fillStyle = "#ff2a2a"; // Hiccup's red tail fin patch
       ctx.fill();
 
-      ctx.beginPath();
-      ctx.moveTo(-14, h * 0.6);
-      ctx.lineTo(-22, h * 0.8 - wingFlap * 0.3);
-      ctx.lineTo(-12, h * 0.55);
-      ctx.closePath();
-      ctx.fill();
-
-      // Eye
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#39ff14";
+      // 6. Eyes (Glowing Green)
+      ctx.shadowBlur = 10;
       ctx.shadowColor = "#39ff14";
-      ctx.shadowBlur = 8;
+      ctx.fillStyle = "#39ff14";
       ctx.beginPath();
-      ctx.ellipse(w * 0.88, h * 0.35, 2.5, 2, 0, 0, Math.PI * 2);
+      ctx.ellipse(32, -4, 2, 4, 0.2, 0, Math.PI * 2); // Left eye
       ctx.fill();
 
       ctx.restore();
@@ -422,34 +472,20 @@ export default function NightFuryRadar() {
 
         // ─── Generate new obstacles ───
         while (nextObstacleX - scrollX < W + 400) {
-          obstacles.push(generatePillar(nextObstacleX));
+          const isTop = Math.random() > 0.5;
+          const obs = generatePillar(nextObstacleX, isTop);
+          obstacles.push(obs);
+
           if (Math.random() > 0.35) {
-            const pair = generatePillar(nextObstacleX);
-            pair.isTop = !obstacles[obstacles.length - 1].isTop;
-            pair.y = pair.isTop ? 0 : H - pair.h;
-            const pts2 = [];
-            const seg = 6 + Math.floor(Math.random() * 4);
-            if (pair.isTop) {
-              pts2.push({ x: pair.x, y: 0 });
-              for (let j = 0; j <= seg; j++) {
-                pts2.push({
-                  x: pair.x + pair.w / 2 + (Math.random() - 0.5) * pair.w * 0.5,
-                  y: (j / seg) * pair.h,
-                });
-              }
-              pts2.push({ x: pair.x + pair.w, y: 0 });
-            } else {
-              pts2.push({ x: pair.x, y: H });
-              for (let j = 0; j <= seg; j++) {
-                pts2.push({
-                  x: pair.x + pair.w / 2 + (Math.random() - 0.5) * pair.w * 0.5,
-                  y: H - (j / seg) * pair.h,
-                });
-              }
-              pts2.push({ x: pair.x + pair.w, y: H });
+            const gap = player.height * 4.5;
+            const otherH = obs.h;
+            const maxH2 = H - otherH - gap;
+
+            if (maxH2 > 50) {
+              const safeGap = otherH + gap;
+              const pairObs = generatePillar(nextObstacleX, !isTop, safeGap);
+              obstacles.push(pairObs);
             }
-            pair.points = pts2;
-            obstacles.push(pair);
           }
           nextObstacleX += OBSTACLE_GAP + Math.random() * 140;
         }
@@ -488,6 +524,7 @@ export default function NightFuryRadar() {
         if (STATE.crashTimer <= 0) {
           glitch.active = false;
         }
+        updateCrashReveal(); // Reveal map on crash
       }
 
       // ─── Sound wave decay ───
@@ -496,14 +533,20 @@ export default function NightFuryRadar() {
         soundWave.bars[i] =
           soundWave.bars[i] * 0.88 +
           soundWave.energy *
-            Math.sin(i * 0.4 + Date.now() * 0.006) *
-            (0.3 + Math.random() * 0.7) *
-            0.12;
+          Math.sin(i * 0.4 + Date.now() * 0.006) *
+          (0.3 + Math.random() * 0.7) *
+          0.12;
       }
 
       // ─── Shake decay ───
       shake.intensity *= shake.decay;
       if (shake.intensity < 0.3) shake.intensity = 0;
+
+      // ─── Pulse Flash Decay ───
+      if (STATE.pulseFlash > 0) {
+        STATE.pulseFlash -= 0.05;
+        if (STATE.pulseFlash < 0) STATE.pulseFlash = 0;
+      }
     }
 
     function draw() {
@@ -514,6 +557,21 @@ export default function NightFuryRadar() {
         const sx = (Math.random() - 0.5) * shake.intensity * 2;
         const sy = (Math.random() - 0.5) * shake.intensity * 2;
         ctx.translate(sx, sy);
+      }
+
+      // ── Chromatic Aberration (Pulse Impact) ──
+      if (STATE.pulseFlash > 0.1) {
+        ctx.translate(STATE.pulseFlash * 4, 0); // Red shift right
+        ctx.globalCompositeOperation = "screen";
+        ctx.fillStyle = `rgba(255, 0, 0, ${STATE.pulseFlash * 0.5})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+
+        ctx.translate(-STATE.pulseFlash * 8, 0); // Blue shift left
+        ctx.fillStyle = `rgba(0, 0, 255, ${STATE.pulseFlash * 0.5})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+
+        ctx.translate(STATE.pulseFlash * 4, 0); // Reset
+        ctx.globalCompositeOperation = "source-over";
       }
 
       // ── Clear ──
@@ -565,6 +623,15 @@ export default function NightFuryRadar() {
         ctx.lineWidth = 3;
         ctx.shadowColor = "#a020f0";
         ctx.shadowBlur = 30;
+
+        // Speed instability
+        const speedFactor = 1 + (player.x / W) * 2.5;
+        if (speedFactor > 1.8) {
+          const jitter = (Math.random() - 0.5) * (speedFactor * 3);
+          ctx.lineWidth = 2 + Math.random() * 3;
+          p.radius += jitter;
+        }
+
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.stroke();

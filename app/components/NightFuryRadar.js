@@ -172,19 +172,31 @@ export default function NightFuryRadar() {
       pulse.energy -= pulse.cost;
       
       const isFireball = activePowerups.fireball.active;
+      
+      // Always fire a normal pulse for visibility
       pulses.push({
         x: player.x + player.width / 2,
         y: player.y + player.height / 2,
         r: 10,
-        maxR: isFireball ? 300 : 550,
+        maxR: 550,
         a: 1,
-        // New high-fidelity properties
-        w: 4, // width
-        hue: isFireball ? 0 : 260 + Math.random() * 40,
-        isFireball: isFireball,
+        w: 4,
+        hue: 260 + Math.random() * 40,
+        isFireball: false,
       });
       
+      // Also fire a fireball if active
       if (isFireball) {
+        pulses.push({
+          x: player.x + player.width / 2,
+          y: player.y + player.height / 2,
+          r: 10,
+          maxR: 350,
+          a: 1,
+          w: 6,
+          hue: 0,
+          isFireball: true,
+        });
         activePowerups.fireball.active = false;
         shake.i = 12;
       } else {

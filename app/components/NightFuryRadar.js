@@ -34,7 +34,7 @@ export default function NightFuryRadar() {
       y: H / 2,
       vy: 0,
       vx: 0,
-      baseSpeed: 3.2,
+      baseSpeed: 4.5, // HARDER (was 3.2)
       width: 56,
       height: 32,
       gravity: 0.13,
@@ -56,7 +56,7 @@ export default function NightFuryRadar() {
     /* ─── World ─── */
     let obstacles = [];
     let scrollX = 0;
-    const GAP = 270;
+    const GAP = 220; // HARDER (was 270)
     let nextObs = W + 250;
     const particles = [];
     const shake = { i: 0, decay: 0.86 };
@@ -79,10 +79,10 @@ export default function NightFuryRadar() {
 
     /* ─── Obstacle Generation ─── */
     function makePillar(x, isTop, pairH = 0) {
-      const minH = 50;
+      const minH = 60; // HARDER: Taller min obstacles
       const maxH = pairH > 0
-        ? Math.max(minH, H - pairH - player.height * 4.5)
-        : H * 0.55;
+        ? Math.max(minH, H - pairH - player.height * 3.8) // HARDER: Tighter gap (was 4.5)
+        : H * 0.6;
       const h = minH + Math.random() * (maxH - minH);
       const w = 55 + Math.random() * 70;
       const segs = 10;
@@ -138,11 +138,12 @@ export default function NightFuryRadar() {
         const top = Math.random() > 0.5;
         const ob = makePillar(nextObs, top);
         obstacles.push(ob);
+        // HARDER: More frequent pairs (40% -> 60%)
         if (Math.random() > 0.4) {
           const pair = makePillar(nextObs, !top, ob.h);
           if (pair.h > 40) obstacles.push(pair);
         }
-        nextObs += GAP + Math.random() * 130;
+        nextObs += GAP + Math.random() * 80; // HARDER: Less variance in gap
       }
     }
 
@@ -154,15 +155,18 @@ export default function NightFuryRadar() {
         x: player.x + player.width / 2,
         y: player.y + player.height / 2,
         r: 10,
-        maxR: 500,
+        maxR: 550,
         a: 1,
+        // New high-fidelity properties
+        w: 4, // width
+        hue: 260 + Math.random() * 40,
       });
       shake.i = 6;
       sonar.energy = 1;
 
       // Play sound
       pulseSound.currentTime = 0;
-      pulseSound.play().catch(() => {});
+      pulseSound.play().catch(() => { });
     }
 
     /* ─── Collision ─── */
@@ -261,7 +265,7 @@ export default function NightFuryRadar() {
         player.x += player.vx;
         player.x = Math.max(40, Math.min(W * 0.65, player.x));
 
-        const speedF = 1 + (player.x / W) * 2.2;
+        const speedF = 1 + (player.x / W) * 3.5; // HARDER: Faster scaler
         scrollX += player.baseSpeed * speedF;
         STATE.score = Math.floor(scrollX / 10);
 
@@ -300,11 +304,12 @@ export default function NightFuryRadar() {
           const top = Math.random() > 0.5;
           const ob = makePillar(nextObs, top);
           obstacles.push(ob);
-          if (Math.random() > 0.35) {
+          // HARDER frequency
+          if (Math.random() > 0.25) {
             const pair = makePillar(nextObs, !top, ob.h);
-            if (pair.h > 40) obstacles.push(pair);
+            if (pair.h > 50) obstacles.push(pair);
           }
-          nextObs += GAP + Math.random() * 130;
+          nextObs += GAP + Math.random() * 80;
         }
 
         obstacles = obstacles.filter(ob => ob.x - scrollX > -150);
@@ -411,23 +416,47 @@ export default function NightFuryRadar() {
         ctx.restore();
       }
 
-      // Pulse rings
+      // Pulse rings (High Fidelity)
       for (const p of pulses) {
         ctx.save();
-        ctx.strokeStyle = `rgba(120, 60, 200, ${p.a * 0.5})`;
+
+        // 1. Outer Glow (Soft)
+        const g = ctx.createRadialGradient(p.x, p.y, p.r * 0.8, p.x, p.y, p.r);
+        g.addColorStop(0, `hsla(${p.hue}, 100%, 50%, 0)`);
+        g.addColorStop(0.9, `hsla(${p.hue}, 100%, 70%, ${p.a * 0.3})`);
+        g.addColorStop(1, `hsla(${p.hue}, 100%, 50%, 0)`);
+        ctx.fillStyle = g;
+        ctx.globalCompositeOperation = "screen";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2. Main Ring (Sharp, Chromatic)
+        ctx.globalCompositeOperation = "lighter";
+
+        // Cyan shift inner
+        ctx.strokeStyle = `rgba(100, 255, 255, ${p.a * 0.8})`;
         ctx.lineWidth = 2;
-        ctx.shadowColor = "#7c3aed";
-        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r - 2, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Magenta shift outer
+        ctx.strokeStyle = `rgba(255, 100, 255, ${p.a * 0.8})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r + 2, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // White hot core ring
+        ctx.strokeStyle = `rgba(255, 255, 255, ${p.a})`;
+        ctx.lineWidth = 1;
+        ctx.shadowColor = `hsla(${p.hue}, 100%, 70%, 1)`;
+        ctx.shadowBlur = 15;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Inner ring
-        ctx.strokeStyle = `rgba(160, 100, 230, ${p.a * 0.2})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * 0.88, 0, Math.PI * 2);
-        ctx.stroke();
         ctx.restore();
       }
 
@@ -631,6 +660,8 @@ export default function NightFuryRadar() {
           borderRadius: "3px",
           border: "1px solid rgba(100, 50, 170, 0.08)",
         }}
+
+
       />
     </div>
   );

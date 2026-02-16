@@ -63,6 +63,19 @@ export default function NightFuryRadar() {
     const sonar = { bars: new Array(48).fill(0), energy: 0 };
     const keys = {};
 
+    /* ─── Powerups ─── */
+    const powerups = [];
+    let nextPowerup = W + 500;
+    const activePowerups = {
+      immunity: { active: false, timer: 0, duration: 180 },
+      fireball: { active: false, timer: 0 },
+    };
+    const POWERUP_TYPES = {
+      IMMUNITY: { type: 'immunity', color: '#39ff14', symbol: '◆', duration: 180 },
+      FIREBALL: { type: 'fireball', color: '#ff4444', symbol: '◉', duration: 0 },
+      PLASMA: { type: 'plasma', color: '#44aaff', symbol: '◈', duration: 0 },
+    };
+
     /* ─── Input ─── */
     function onKeyDown(e) {
       keys[e.code] = true;
@@ -132,6 +145,12 @@ export default function NightFuryRadar() {
       obstacles = [];
       scrollX = 0;
       nextObs = W + 250;
+      nextPowerup = W + 500;
+      powerups.length = 0;
+      activePowerups.immunity.active = false;
+      activePowerups.immunity.timer = 0;
+      activePowerups.fireball.active = false;
+      activePowerups.fireball.timer = 0;
       shake.i = 0;
 
       for (let i = 0; i < 6; i++) {
@@ -151,17 +170,27 @@ export default function NightFuryRadar() {
     function firePulse() {
       if (pulse.energy < pulse.cost) return;
       pulse.energy -= pulse.cost;
+      
+      const isFireball = activePowerups.fireball.active;
       pulses.push({
         x: player.x + player.width / 2,
         y: player.y + player.height / 2,
         r: 10,
-        maxR: 550,
+        maxR: isFireball ? 300 : 550,
         a: 1,
         // New high-fidelity properties
         w: 4, // width
-        hue: 260 + Math.random() * 40,
+        hue: isFireball ? 0 : 260 + Math.random() * 40,
+        isFireball: isFireball,
       });
-      shake.i = 6;
+      
+      if (isFireball) {
+        activePowerups.fireball.active = false;
+        shake.i = 12;
+      } else {
+        shake.i = 6;
+      }
+      
       sonar.energy = 1;
 
       // Play sound
@@ -182,6 +211,9 @@ export default function NightFuryRadar() {
     }
 
     function checkCollision() {
+      // Immunity powerup prevents collision
+      if (activePowerups.immunity.active) return false;
+      
       const cx = player.x + player.width / 2;
       const cy = player.y + player.height / 2;
       const tests = [
@@ -193,6 +225,8 @@ export default function NightFuryRadar() {
       for (const ob of obstacles) {
         const sx = ob.x - scrollX;
         if (sx > W + 80 || sx + ob.w < -80) continue;
+        // Skip destroyed obstacles
+        if (ob.destroyed) continue;
         for (const t of tests) {
           if (ptInPoly(t.x, t.y, ob.points)) return true;
         }
@@ -276,16 +310,51 @@ export default function NightFuryRadar() {
         // Update pulses
         for (let i = pulses.length - 1; i >= 0; i--) {
           const p = pulses[i];
-          p.r += 7;
+          p.r += p.isFireball ? 9 : 7;
           p.a = 1 - p.r / p.maxR;
           if (p.r >= p.maxR) { pulses.splice(i, 1); continue; }
           for (const ob of obstacles) {
             const ox = ob.x - scrollX + ob.w / 2;
             const oy = ob.isTop ? ob.h / 2 : H - ob.h / 2;
-            if (Math.hypot(ox - p.x, oy - p.y) < p.r + ob.w / 2) {
+            const dist = Math.hypot(ox - p.x, oy - p.y);
+            if (dist < p.r + ob.w / 2) {
               ob.opacity = 1;
               ob.revealT = 100;
+              // Fireball destroys obstacles
+              if (p.isFireball && dist < p.r) {
+                ob.destroyed = true;
+                ob.opacity = 0;
+              }
             }
+          }
+        }
+        
+        // Update powerup timers
+        if (activePowerups.immunity.active) {
+          activePowerups.immunity.timer--;
+          if (activePowerups.immunity.timer <= 0) {
+            activePowerups.immunity.active = false;
+          }
+        }
+        
+        // Check powerup collection
+        for (let i = powerups.length - 1; i >= 0; i--) {
+          const pu = powerups[i];
+          const dx = (player.x + player.width / 2) - (pu.x - scrollX);
+          const dy = (player.y + player.height / 2) - pu.y;
+          if (Math.hypot(dx, dy) < 30) {
+            // Collect powerup
+            if (pu.powerupType === 'immunity') {
+              activePowerups.immunity.active = true;
+              activePowerups.immunity.timer = activePowerups.immunity.duration;
+            } else if (pu.powerupType === 'fireball') {
+              activePowerups.fireball.active = true;
+            } else if (pu.powerupType === 'plasma') {
+              pulse.energy = pulse.max;
+            }
+            powerups.splice(i, 1);
+            shake.i = 4;
+            continue;
           }
         }
 
@@ -313,6 +382,55 @@ export default function NightFuryRadar() {
         }
 
         obstacles = obstacles.filter(ob => ob.x - scrollX > -150);
+        
+        // Generate powerups in safe but challenging positions
+        while (nextPowerup - scrollX < W + 200) {
+          const types = Object.values(POWERUP_TYPES);
+          const selectedType = types[Math.floor(Math.random() * types.length)];
+          
+          // Find obstacles near this X position to avoid placing inside them
+          const nearbyObs = obstacles.filter(ob => 
+            Math.abs(ob.x - nextPowerup) < ob.w + 60
+          );
+          
+          // Calculate safe Y range
+          let safeMinY = 80;
+          let safeMaxY = H - 80;
+          
+          for (const ob of nearbyObs) {
+            if (ob.isTop) {
+              // Top obstacle - don't place in upper area
+              safeMinY = Math.max(safeMinY, ob.h + 50);
+            } else {
+              // Bottom obstacle - don't place in lower area
+              safeMaxY = Math.min(safeMaxY, H - ob.h - 50);
+            }
+          }
+          
+          // Ensure valid range exists
+          if (safeMaxY - safeMinY > 60) {
+            // Place slightly off-center (not in the middle, makes it more challenging)
+            const centerY = (safeMinY + safeMaxY) / 2;
+            const offset = (Math.random() - 0.5) * (safeMaxY - safeMinY) * 0.6;
+            const puY = Math.max(safeMinY + 30, Math.min(safeMaxY - 30, centerY + offset));
+            
+            powerups.push({
+              x: nextPowerup,
+              y: puY,
+              powerupType: selectedType.type,
+              color: selectedType.color,
+              symbol: selectedType.symbol,
+              pulse: 0,
+            });
+          }
+          nextPowerup += 600 + Math.random() * 400;
+        }
+        
+        // Update powerups
+        powerups.forEach(pu => {
+          pu.pulse += 0.08;
+        });
+        powerups.splice(0, powerups.filter(pu => pu.x - scrollX < -100).length);
 
         // Trail particles
         if (Math.random() > 0.3) {
@@ -393,7 +511,7 @@ export default function NightFuryRadar() {
     function drawGame() {
       // Obstacles
       for (const ob of obstacles) {
-        if (ob.opacity < 0.01) continue;
+        if (ob.opacity < 0.01 || ob.destroyed) continue;
         ctx.save();
         ctx.globalAlpha = ob.opacity;
 
@@ -413,6 +531,43 @@ export default function NightFuryRadar() {
         ctx.shadowColor = "#7c3aed";
         ctx.shadowBlur = 10 * ob.opacity;
         ctx.stroke();
+        ctx.restore();
+      }
+
+      // Powerups
+      for (const pu of powerups) {
+        const px = pu.x - scrollX;
+        if (px < -50 || px > W + 50) continue;
+        
+        ctx.save();
+        const scale = 1 + Math.sin(pu.pulse) * 0.15;
+        const alpha = 0.7 + Math.sin(pu.pulse * 2) * 0.3;
+        
+        ctx.globalAlpha = alpha;
+        ctx.translate(px, pu.y);
+        ctx.scale(scale, scale);
+        
+        // Outer glow
+        const glow = ctx.createRadialGradient(0, 0, 10, 0, 0, 25);
+        const r = parseInt(pu.color.slice(1, 3), 16);
+        const g = parseInt(pu.color.slice(3, 5), 16);
+        const b = parseInt(pu.color.slice(5, 7), 16);
+        glow.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.67)`);
+        glow.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 25, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Symbol
+        ctx.fillStyle = pu.color;
+        ctx.shadowColor = pu.color;
+        ctx.shadowBlur = 15;
+        ctx.font = 'bold 24px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pu.symbol, 0, 0);
+        
         ctx.restore();
       }
 
@@ -473,7 +628,21 @@ export default function NightFuryRadar() {
         ctx.restore();
       }
 
-      // Dragon
+      // Dragon with immunity effect
+      if (activePowerups.immunity.active) {
+        ctx.save();
+        const shimmer = 0.5 + 0.5 * Math.sin(Date.now() * 0.02);
+        ctx.shadowColor = '#39ff14';
+        ctx.shadowBlur = 20 * shimmer;
+        ctx.globalAlpha = 0.3 + shimmer * 0.4;
+        ctx.strokeStyle = '#39ff14';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(player.x + player.width / 2, player.y + player.height / 2, 35, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      
       drawDragon();
 
       // HUD
@@ -521,6 +690,22 @@ export default function NightFuryRadar() {
       ctx.font = "9px 'Courier New', monospace";
       ctx.textAlign = "left";
       ctx.fillText(`SPD ${"▮".repeat(sl)}${"▯".repeat(3 - sl)}`, 18, 66);
+      
+      // Active powerups display
+      let pyOffset = 82;
+      if (activePowerups.immunity.active) {
+        const timeLeft = Math.ceil(activePowerups.immunity.timer / 60);
+        ctx.fillStyle = '#39ff14';
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillText(`◆ IMMUNITY ${timeLeft}s`, 18, pyOffset);
+        pyOffset += 14;
+      }
+      if (activePowerups.fireball.active) {
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.fillText(`◉ FIREBALL READY`, 18, pyOffset);
+        pyOffset += 14;
+      }
 
       ctx.restore();
     }
